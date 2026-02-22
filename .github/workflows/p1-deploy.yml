@@ -1,0 +1,98 @@
+name: Deploy Models P1 (Shards 0-29)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy-models:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Models Directory
+        run: mkdir -p dist/Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC/resolve/main
+
+      - name: Download Model Artifacts
+        run: |
+          MODEL_DIR="dist/Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC/resolve/main"
+          HF_BASE="https://huggingface.co/mlc-ai/Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC/resolve/main"
+          
+          echo "Downloading Configs..."
+          curl -L -o "$MODEL_DIR/mlc-chat-config.json" "$HF_BASE/mlc-chat-config.json"
+          curl -L -o "$MODEL_DIR/tokenizer.json" "$HF_BASE/tokenizer.json"
+          curl -L -o "$MODEL_DIR/tokenizer_config.json" "$HF_BASE/tokenizer_config.json"
+          curl -L -o "$MODEL_DIR/ndarray-cache.json" "$HF_BASE/ndarray-cache.json"
+          curl -L -o "$MODEL_DIR/vocab.json" "$HF_BASE/vocab.json"
+          curl -L -o "$MODEL_DIR/merges.txt" "$HF_BASE/merges.txt"
+          curl -L -o "$MODEL_DIR/tensor-cache.json" "$HF_BASE/tensor-cache.json"
+          
+          echo "Downloading Shards 0-29..."
+          for i in {0..29}; do
+            SHARD="params_shard_${i}.bin"
+            echo "::group::Downloading $SHARD"
+            curl -L -s -o "$MODEL_DIR/$SHARD" "$HF_BASE/$SHARD"
+            echo "::endgroup::"
+          done
+
+      - name: Modify ndarray-cache.json for Distributed Shards
+        run: |
+          MODEL_DIR="dist/Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC/resolve/main"
+          USER_NAME="${{ github.repository_owner }}"
+          P2_URL="https://${USER_NAME}.github.io/ai-models-3b-p2/Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC/resolve/main"
+          
+          echo "Updating ndarray-cache.json to point shards 30-61 to $P2_URL"
+          
+          # Use Python for reliable JSON manipulation in the runner
+          python3 -c "
+          import json, sys
+          path = '$MODEL_DIR/ndarray-cache.json'
+          p2_url = '$P2_URL'
+          with open(path, 'r') as f:
+              data = json.load(f)
+          
+          for param in data['params']:
+              shard_path = param['path']
+              if shard_path.startswith('params_shard_'):
+                  try:
+                      shard_num = int(shard_path.split('_')[2].split('.')[0])
+                      if shard_num >= 30:
+                          param['path'] = f'{p2_url}/{shard_path}'
+                  except:
+                      pass
+          
+          with open(path, 'w') as f:
+              json.dump(data, f, indent=2)
+          "
+
+      - name: Download WASM Library
+        run: |
+          MODEL_DIR="dist/Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC"
+          WASM_URL="https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_80/Qwen2.5-3B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm"
+          
+          mkdir -p "$MODEL_DIR/resolve/main"
+          curl -L -o "$MODEL_DIR/resolve/main/Qwen2.5-3B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm" "$WASM_URL"
+          cp "$MODEL_DIR/resolve/main/Qwen2.5-3B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm" "$MODEL_DIR/Qwen2.5-3B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm"
+
+      - name: List dist contents (Verification)
+        run: find dist -maxdepth 4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'dist'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
