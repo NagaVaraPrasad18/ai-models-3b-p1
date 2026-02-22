@@ -43,34 +43,42 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Modify ndarray-cache.json for Distributed Shards
+      - name: Modify Cache Manifests for Distributed Shards
         run: |
           MODEL_DIR="dist/Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC/resolve/main"
           USER_NAME="${{ github.repository_owner }}"
           P2_URL="https://${USER_NAME}.github.io/ai-models-3b-p2/Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC/resolve/main"
           
-          echo "Updating ndarray-cache.json to point shards 30-61 to $P2_URL"
+          echo "Updating manifests to point shards 30-61 to $P2_URL"
           
-          # Use Python for reliable JSON manipulation in the runner
           python3 -c "
-          import json, sys
-          path = '$MODEL_DIR/ndarray-cache.json'
+          import json, os
+          model_dir = '$MODEL_DIR'
           p2_url = '$P2_URL'
-          with open(path, 'r') as f:
-              data = json.load(f)
+          files_to_patch = ['ndarray-cache.json', 'tensor-cache.json']
           
-          for record in data['records']:
-              shard_path = record['dataPath']
-              if shard_path.startswith('params_shard_'):
-                  try:
-                      shard_num = int(shard_path.split('_')[2].split('.')[0])
-                      if shard_num >= 30:
-                          record['dataPath'] = f'{p2_url}/{shard_path}'
-                  except:
-                      pass
-          
-          with open(path, 'w') as f:
-              json.dump(data, f, indent=2)
+          for filename in files_to_patch:
+              path = os.path.join(model_dir, filename)
+              if not os.path.exists(path):
+                  continue
+              
+              print(f'Patching {filename}...')
+              with open(path, 'r') as f:
+                  data = json.load(f)
+              
+              if 'records' in data:
+                  for record in data['records']:
+                      shard_path = record.get('dataPath')
+                      if shard_path and shard_path.startswith('params_shard_'):
+                          try:
+                              shard_num = int(shard_path.split('_')[2].split('.')[0])
+                              if shard_num >= 30:
+                                  record['dataPath'] = f'{p2_url}/{shard_path}'
+                          except:
+                              pass
+              
+              with open(path, 'w') as f:
+                  json.dump(data, f, indent=2)
           "
 
       - name: Download WASM Library
