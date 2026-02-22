@@ -59,13 +59,13 @@ jobs:
           with open(path, 'r') as f:
               data = json.load(f)
           
-          for param in data['params']:
-              shard_path = param['path']
+          for record in data['records']:
+              shard_path = record['dataPath']
               if shard_path.startswith('params_shard_'):
                   try:
                       shard_num = int(shard_path.split('_')[2].split('.')[0])
                       if shard_num >= 30:
-                          param['path'] = f'{p2_url}/{shard_path}'
+                          record['dataPath'] = f'{p2_url}/{shard_path}'
                   except:
                       pass
           
